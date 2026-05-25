@@ -1,45 +1,52 @@
-name: Check Respomuso availability
+name: Availability monitor
 
 on:
+  workflow_dispatch:
   schedule:
     - cron: "*/5 * * * *"
-  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: availability-monitor
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
+          cache: pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Check availability
-        run: python monitor.py
+      - name: Run monitor
         env:
-          TRACKED_DATES: ${{ vars.TRACKED_DATES }}
+          TRACKED_DATES: ${{ vars.TRACKED_DATES || vars.TARGET_DATES }}
           ALERT_DATES: ${{ vars.ALERT_DATES }}
-          NOTIFY_PROVIDER: ${{ vars.NOTIFY_PROVIDER }}
-          DB_PATH: data/availability.sqlite
-          REQUEST_TIMEOUT: 20
+          NOTIFY_PROVIDER: ${{ vars.NOTIFY_PROVIDER || 'ntfy' }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_URL: ${{ secrets.NTFY_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DB_PATH: data/availability.sqlite
+          LOG_LEVEL: INFO
+        run: python monitor.py --config config.example.yaml
 
-      - name: Commit updated database
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add data/availability.sqlite
-          git diff --cached --quiet || git commit -m "Update availability database"
-          git push
+      - name: Commit updated history
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update Respomuso availability history"
+          file_pattern: data/availability.sqlite
